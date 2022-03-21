@@ -1,0 +1,14 @@
+syntax = "proto3";
+
+import "ocr_service_types.proto";
+
+package ah.ocrstudio.service;
+
+service OcrService {
+  rpc healthcheck (HealthRequest) returns (HealthResponse) {}
+  rpc configure_engines (EngineConfigurationRequest) returns (EngineConfigurationResponse) {}
+  rpc configure_reference (ReferenceConfigurationRequest) returns (ReferenceConfigurationResponse) {}
+  rpc configure_references (ReferencesConfigurationRequest) returns (ReferencesConfigurationResponse) {}
+  rpc align (AlignmentRequest) returns (AlignmentResponse) {}
+  rpc extract (ExtractionRequest) returns (ExtractionResponse) {}
+}

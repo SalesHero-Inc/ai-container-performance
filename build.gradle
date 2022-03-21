@@ -1,0 +1,130 @@
+plugins {
+    id 'java'
+    id 'java-library'
+    id 'com.google.protobuf' version('0.8.16')
+    id 'com.github.johnrengelman.shadow' version '7.1.2'
+}
+
+apply plugin: 'java'
+apply plugin: 'com.google.protobuf'
+apply plugin: 'com.github.johnrengelman.shadow'
+
+group 'com.heroflow'
+version '1.0-SNAPSHOT'
+
+repositories {
+    gradlePluginPortal()
+    mavenLocal()
+    mavenCentral()
+    maven {
+        credentials {
+            username "r2d2"
+            password "r2d2auto123"
+        }
+        url = 'https://nexus.automationhero.ai/repository/maven-public'
+    }
+}
+
+configurations {
+    dockerJava
+}
+
+dependencies {
+    dockerJava('com.github.docker-java:docker-java:3.2.7') {
+        exclude group: 'org.slf4j'
+        exclude group: 'org.bouncycastle'
+    }
+
+    dockerJava 'com.github.docker-java:docker-java-transport-httpclient5:3.2.7'
+    dockerJava 'org.glassfish.jersey.connectors:jersey-apache-connector:2.30.1'
+    dockerJava 'org.glassfish.jersey.core:jersey-client:2.30.1'
+    dockerJava 'org.glassfish.jersey.inject:jersey-hk2:2.30.1'
+    dockerJava 'com.kohlschutter.junixsocket:junixsocket-common:2.3.2'
+    dockerJava 'com.kohlschutter.junixsocket:junixsocket-native-common:2.3.2'
+    dockerJava 'com.kohlschutter.junixsocket:junixsocket-native-custom:2.3.2'
+
+    api 'io.vavr:vavr:0.10.0',
+            'org.apache.thrift:libthrift:0.14.1',
+            'org.quartz-scheduler:quartz:2.3.0',
+            "org.json:json:20170516"
+
+    //Tar compress
+    api 'org.apache.commons:commons-compress:1.20'
+    api 'commons-io:commons-io:2.6'
+
+    compileOnly 'org.projectlombok:lombok:1.18.22'
+    annotationProcessor 'org.projectlombok:lombok:1.18.22'
+
+    implementation 'org.codehaus.groovy:groovy-all:3.0.10',
+            'com.github.docker-java:docker-java:3.2.13',
+            'net.foragerr.jmeter:jmeter-gradle-plugin:0.1.4-2.13',
+            'com.github.docker-java:docker-java-transport-httpclient5:3.2.3',
+//            'org.projectlombok:lombok:1.18.22',
+            // gRPC
+            'com.google.protobuf:protobuf-java:3.15.8',
+            'io.grpc:grpc-netty-shaded:1.44.1',
+            'io.grpc:grpc-stub:1.44.1',
+            'io.grpc:grpc-protobuf:1.44.1'
+
+
+    testImplementation 'org.junit.jupiter:junit-jupiter-api:5.8.2',
+            'io.github.hakky54:logcaptor:2.7.8'
+    testRuntimeOnly 'org.junit.jupiter:junit-jupiter-engine:5.8.2'
+}
+
+test {
+    useJUnitPlatform()
+}
+
+shadowJar {
+    zip64(true)
+    manifest.attributes["Main-Class"] = 'ah.heroflow.AiDockerPerformance'
+}
+
+protobuf {
+    // Configure the protoc executable
+    protoc {
+        // Download from repositories
+        artifact = 'com.google.protobuf:protoc:3.15.6'
+    }
+
+    plugins {
+        // Optional: an artifact spec for a protoc plugin, with "grpc" as
+        // the identifier, which can be referred to in the "plugins"
+        // container of the "generateProtoTasks" closure.
+        grpc {
+            artifact = 'io.grpc:protoc-gen-grpc-java:1.36.0'
+        }
+    }
+
+    generateProtoTasks {
+//        ofSourceSet('main').each { task ->
+//            project.tasks.getByPath("idea").dependsOn task
+//        }
+
+        ofSourceSet('main')*.plugins {
+            // Apply the "grpc" plugin whose spec is defined above, without
+            // options.  Note the braces cannot be omitted, otherwise the
+            // plugin will not be added. This is because of the implicit way
+            // NamedDomainObjectContainer binds the methods.
+            grpc { }
+        }
+    }
+}
+
+//idea {
+//    module {
+//        // If you have additional sources, add them here:
+//        sourceDirs += file("build/generated/source/proto/main/java");
+//        sourceDirs += file("build/generated/source/proto/main/grpc");
+//    }
+//}
+
+sourceSets {
+    generated {
+        java {
+            srcDirs += file('build/generated/source/proto/main/java');
+            srcDirs += file('build/generated/source/proto/main/grpc');
+        }
+    }
+}
