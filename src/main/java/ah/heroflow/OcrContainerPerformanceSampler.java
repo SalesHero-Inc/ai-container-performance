@@ -3,8 +3,6 @@ package ah.heroflow;
 import static ah.heroflow.util.StorageProperties.*;
 
 import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -19,12 +17,10 @@ import com.github.dockerjava.api.model.HealthCheck;
 import com.github.dockerjava.api.model.HostConfig;
 import com.github.dockerjava.api.model.PortBinding;
 import com.github.dockerjava.api.model.Volume;
-import com.github.dockerjava.core.DefaultDockerClientConfig;
-import com.github.dockerjava.core.DockerClientBuilder;
-import com.github.dockerjava.httpclient5.ApacheDockerHttpClient;
-import com.github.dockerjava.jaxrs.JerseyDockerHttpClient;
 import ah.heroflow.grpc.OcrRpcEngineService;
 import ah.heroflow.ocr.OcrField;
+import ah.heroflow.util.DockerImageUtil;
+import ah.heroflow.images.ImageDataProvider;
 import ah.heroflow.util.StorageProperties;
 
 public class OcrContainerPerformanceSampler extends AbstractJavaSamplerClient {
@@ -32,6 +28,7 @@ public class OcrContainerPerformanceSampler extends AbstractJavaSamplerClient {
   public static final int INTERNAL_PORT = 8274;
   public static final String LOCALHOST = "localhost";
 
+  private final ImageDataProvider _imageProvider = new ImageDataProvider();
 
   /**
    * we need to add docker data here
@@ -42,7 +39,7 @@ public class OcrContainerPerformanceSampler extends AbstractJavaSamplerClient {
   public Arguments getDefaultParameters() {
     Arguments defaultParameters = new Arguments();
     defaultParameters.addArgument("port", "9090");
-    defaultParameters.addArgument("internal_docker_mount_path", "/binary");
+    defaultParameters.addArgument("internal_docker_mount_path", DOCKER_ROOT_DIR);
     defaultParameters.addArgument("external_mount_path", StorageProperties.modelFolder().toString());
     defaultParameters.addArgument("imageName", "nexus.automationhero.ai:8443/ocr-service:1.7.4.1");
     return defaultParameters;
@@ -50,32 +47,33 @@ public class OcrContainerPerformanceSampler extends AbstractJavaSamplerClient {
 
   @Override
   public SampleResult runTest(JavaSamplerContext javaSamplerContext) {
-    var result = new SampleResult();
-    result.sampleStart();
-    //start
-
-    //todo download image if needed
+    //prepare input data
     var imageName = getArgument("imageName");
+    DockerImageUtil.downloadAndInstallIfMissing(imageName);
+
     var port = Integer.parseInt(getArgument("port"));
     var mountPath = getArgument("external_mount_path");
     var dockerMountPath = getArgument("internal_docker_mount_path");
 
-    try {
-      Files.createDirectories(Path.of(mountPath));
-    } catch (Exception e) {
-      throw new RuntimeException("Failed to create directory " + mountPath, e);
-    }
+    var result = new SampleResult();
+    result.sampleStart();
+    //start
+
+    StorageProperties.generateOcrMountDirs();
     System.out.printf("Request to start new container from image %s was received.", imageName);
 
+    //todo use randomly generated port instead of static port
     var portBindings = List.of(PortBinding.parse(String.format("%d:%s", INTERNAL_PORT, port)));
+
     var exposedPorts = portBindings.stream()
         .map(PortBinding::getExposedPort)
         .collect(Collectors.toList());
     var volumes = List.of(new Volume(dockerMountPath));
     var binds = List.of(new Bind(mountPath, new Volume(dockerMountPath)));
 
-    try (DockerClient dockerClientWithTimeout = openClientWithSocketTimeout();
+    try (DockerClient dockerClientWithTimeout = DockerImageUtil.openClientWithSocketTimeout();
         CreateContainerCmd createContainerCmd = dockerClientWithTimeout.createContainerCmd(imageName)) {
+
       var config = new HostConfig() //todo check configuration, we might need to increase it
           .withPortBindings(portBindings)
           .withMemory(951619276L)
@@ -106,12 +104,15 @@ public class OcrContainerPerformanceSampler extends AbstractJavaSamplerClient {
       runWithTimeout(rpcSession::verifyConnection, 30);
 
       //todo now we use static path, we need to generate sub-folders for each request
+      var imagePath = _imageProvider.checkOcrImageAndMoveToWorkingDir();
+      var dockerImagePath = toDockerDir(imagePath);
       //configure references, we must do it before alignment
-      rpcSession.configureReferences(List.of(IMAGE_PATH_IN_DOCKER));
+      rpcSession.configureReferences(List.of(dockerImagePath));
 
       //alignment
-      var alignmentResult = rpcSession.align(List.of(IMAGE_PATH_IN_DOCKER),
-          "/binary/ocr/output/");
+      var dockerOutputDir = toDockerDir(outputDir().toString());
+      var alignmentResult = rpcSession.align(List.of(dockerImagePath), dockerOutputDir);
+      alignmentResult.verify();
 
       //extract
       rpcSession.extract(alignmentResult, List.of(OcrField.testOcrField()));
@@ -130,7 +131,7 @@ public class OcrContainerPerformanceSampler extends AbstractJavaSamplerClient {
 
   /**
    * after starting container it's not running immediately
-   * we need some time to check that container stated and running correctly
+   * we need some time to check that container started and running correctly
    * @param runnable -  Runnable(void callback)
    * @param seconds - timeout
    */
@@ -149,32 +150,5 @@ public class OcrContainerPerformanceSampler extends AbstractJavaSamplerClient {
 
   private String getArgument(String param) {
     return getDefaultParameters().getArgumentsAsMap().get(param);
-  }
-
-  public static DockerClient openDefaultClient() {
-    var config = DefaultDockerClientConfig.createDefaultConfigBuilder().build();
-    return openDefaultClient(config);
-  }
-
-  public static DockerClient openDefaultClient(DefaultDockerClientConfig config) {
-    return DockerClientBuilder.getInstance(config)
-        .withDockerHttpClient(new ApacheDockerHttpClient.Builder()
-            .dockerHost(config.getDockerHost())
-            .sslConfig(config.getSSLConfig())
-            .build())
-        .build();
-  }
-
-  public static DockerClient openClientWithSocketTimeout() {
-    var config = DefaultDockerClientConfig.createDefaultConfigBuilder().build();
-    var client = new JerseyDockerHttpClient.Builder()
-        .dockerHost(config.getDockerHost())
-        .sslConfig(config.getSSLConfig())
-        .connectTimeout(100)
-        .readTimeout(1_000)
-        .build();
-    return DockerClientBuilder.getInstance(config)
-        .withDockerHttpClient(client)
-        .build();
   }
 }

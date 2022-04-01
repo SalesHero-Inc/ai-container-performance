@@ -5,6 +5,7 @@ import java.io.Serializable;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Map.Entry;
+import com.google.common.base.Verify;
 import lombok.Builder;
 import lombok.Data;
 import ah.ocrstudio.service.OcrServiceTypes.AlignedImage;
@@ -19,6 +20,10 @@ public class AlignmentResult implements Serializable {
 
   private String referenceId;
   private Map<Integer, AlignedImageResult> alignedImageByPageIndex;
+
+  public void verify() {
+    Verify.verify(!alignedImageByPageIndex.values().isEmpty(), "alignment result is empty");
+  }
 
   public static AlignmentResult of(AlignmentResponse alignment) {
     Map<Integer, AlignedImageResult> alignedImageByPageIndex = new LinkedHashMap<>();
